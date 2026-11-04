@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UE5 地编模式交互效果图</title>
+<title>UE5 地编模式交互效果图 · 方案3（窗口会话式）</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -20,7 +20,6 @@
   .figsub { font-size: 12px; color: var(--hatch-widget-muted, #9a9a9a); margin: -6px 0 10px; }
   .scroll { overflow-x: auto; border-radius: 8px; }
 
-  /* ---------- UE window chrome ---------- */
   .uewin {
     min-width: 960px;
     background: #1d1d1d;
@@ -35,17 +34,19 @@
     background: #2b2b2b; border-bottom: 1px solid #101010;
     padding: 7px 12px; font-size: 13px; font-weight: 600;
   }
+  .titlebar .live { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:400; color:#8fe09b; margin-left:10px; }
+  .titlebar .live i { width:8px; height:8px; border-radius:50%; background:#5cbf6a; display:inline-block; }
   .titlebar .wins { display: flex; gap: 8px; align-items: center; color: #8f8f8f; font-size: 12px; }
   .titlebar .wins span { display:inline-flex; width:22px; height:22px; align-items:center; justify-content:center; border-radius:4px; cursor:default; }
-  .titlebar .wins span:hover { background:#3a3a3a; color:#ddd; }
+  .tabbar { display:flex; background:#242424; border-bottom:1px solid #101010; padding:0 12px; gap:2px; }
+  .tab { padding:9px 22px; font-size:13px; color:#9a9a9a; border-bottom:2px solid transparent; cursor:default; }
+  .tab.active { color:#fff; font-weight:600; border-bottom-color:#35a3e8; background:#1d1d1d; }
 
-  /* ---------- palette ---------- */
   .filterbar { display:flex; gap:8px; align-items:center; padding:10px 12px; background:#232323; border-bottom:1px solid #101010; flex-wrap:wrap; }
   .search { display:flex; align-items:center; gap:6px; background:#141414; border:1px solid #3a3a3a; border-radius:4px; padding:5px 10px; width:230px; color:#8f8f8f; }
   .search input { background:transparent; border:0; outline:0; color:#ddd; width:100%; font-size:13px; }
   .sel { background:#141414; border:1px solid #3a3a3a; color:#dcdcdc; border-radius:4px; padding:5px 8px; font-size:12px; }
   .chipbtn { background:#141414; border:1px solid #3a3a3a; color:#bdbdbd; border-radius:12px; padding:4px 12px; font-size:12px; }
-  .chipbtn.on { border-color:#35a3e8; color:#7cc7f2; }
   .pbody { display:flex; min-height:340px; }
   .cats { width:172px; background:#202020; border-right:1px solid #101010; padding:8px 0; flex:none; }
   .cats .chead { font-size:11px; color:#8f8f8f; padding:4px 14px 8px; letter-spacing:.06em; }
@@ -65,43 +66,41 @@
   .preview .info h4 { font-size:13.5px; margin-bottom:6px; color:#fff; }
   .preview .info .kv { display:flex; gap:16px; flex-wrap:wrap; color:#9a9a9a; margin:6px 0 10px; }
   .preview .info .kv b { color:#dcdcdc; font-weight:600; }
-  .btnrow { display:flex; gap:8px; }
+  .btnrow { display:flex; gap:8px; flex-wrap:wrap; }
   .btn { border:1px solid #3a3a3a; background:#2e2e2e; color:#e2e2e2; border-radius:4px; padding:7px 14px; font-size:12.5px; cursor:default; }
   .btn.primary { background:#1d6fa8; border-color:#1d6fa8; color:#fff; font-weight:600; }
   .btn.ghost { background:transparent; }
+  .btn.danger { background:transparent; border-color:#6e3a3a; color:#e09b9b; }
 
-  /* ---------- editor mock ---------- */
+  .sessrow { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#223026; border-bottom:1px solid #101010; font-size:12.5px; }
+  .sessrow .dot { width:9px; height:9px; border-radius:50%; background:#5cbf6a; box-shadow:0 0 6px #5cbf6a; }
+  .sessrow .mod { background:#141414; border:1px solid #3a3a3a; border-radius:4px; padding:3px 10px; color:#e2e2e2; }
+  .sessbody { display:flex; }
+  .sessleft { width:300px; flex:none; background:#202020; border-right:1px solid #101010; padding:12px 14px; }
+  .sessleft h5 { font-size:11px; letter-spacing:.08em; color:#8f8f8f; margin:0 0 8px; font-weight:600; }
+  .sessleft .sec { margin-bottom:16px; }
+  .switchrow { display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:#cfcfcf; margin-bottom:8px; }
+  .switch { width:34px; height:19px; border-radius:10px; background:#1d6fa8; position:relative; flex:none; }
+  .switch:after { content:""; position:absolute; right:3px; top:3px; width:13px; height:13px; border-radius:50%; background:#fff; }
+  .alignrow { display:flex; gap:6px; margin-bottom:6px; align-items:center; }
+  .alignrow .al { font-size:11.5px; color:#8f8f8f; width:16px; flex:none; }
+  .abtn { flex:1; border:1px solid #3a3a3a; background:#2a2a2a; color:#cfcfcf; border-radius:4px; padding:6px 0; font-size:12px; text-align:center; }
+  .wide { width:100%; margin-top:8px; }
+  .hint { font-size:11.5px; color:#8f8f8f; background:#1b1b1b; border:1px solid #2c2c2c; border-radius:4px; padding:7px 9px; margin-top:10px; }
+  .sessright { flex:1; min-width:0; background:#0e0e0e; position:relative; }
+  .sessright svg.scene { display:block; width:100%; height:auto; }
+  .vp-tag { position:absolute; top:10px; left:12px; font-size:11.5px; color:#cfcfcf; background:rgba(10,10,10,.55); padding:3px 10px; border-radius:4px; }
+  .sess-tag { position:absolute; top:10px; right:12px; font-size:11.5px; color:#8fe09b; background:rgba(20,40,24,.72); border:1px solid #3c6e46; padding:3px 10px; border-radius:4px; }
+  .statusstrip { position:absolute; left:0; right:0; bottom:0; background:rgba(14,18,16,.88); border-top:1px solid #3c6e46; padding:7px 14px; font-size:12px; color:#d7e8da; display:flex; gap:18px; align-items:center; }
+  .statusstrip .k { color:#8fe09b; font-weight:600; }
+  .statusstrip .dim { color:#8a9a8d; margin-left:auto; }
+
   .toolbar { display:flex; align-items:center; gap:6px; background:#2b2b2b; border-bottom:1px solid #101010; padding:6px 12px; }
   .modebtn { border:1px solid transparent; background:transparent; color:#bdbdbd; border-radius:4px; padding:5px 12px; font-size:12.5px; }
   .modebtn.active { background:#1d3a52; border-color:#35a3e8; color:#fff; font-weight:600; }
   .tsep { width:1px; height:20px; background:#3a3a3a; margin:0 6px; }
   .tool { color:#bdbdbd; font-size:12px; padding:5px 8px; border-radius:4px; }
-  .ebody { display:flex; }
-  .viewport { flex:1; background:#0e0e0e; position:relative; min-width:0; }
-  .viewport svg { display:block; width:100%; height:auto; }
-  .vp-tag { position:absolute; top:10px; left:12px; font-size:11.5px; color:#cfcfcf; background:rgba(10,10,10,.55); padding:3px 10px; border-radius:4px; }
-  .toolkit { width:238px; flex:none; background:#232323; border-left:1px solid #101010; padding:12px; }
-  .tk-sec { margin-bottom:16px; }
-  .tk-sec h5 { font-size:11px; letter-spacing:.08em; color:#8f8f8f; margin-bottom:8px; font-weight:600; }
-  .snapgrid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-  .snap { border:1px solid #3a3a3a; background:#2a2a2a; color:#bdbdbd; border-radius:4px; padding:7px 0; font-size:12.5px; text-align:center; }
-  .snap.on { border-color:#5cbf6a; color:#8fe09b; background:#233528; }
-  .snap.on.blue { border-color:#5aa9e6; color:#9ccdf5; background:#22303d; }
-  .sliderow { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:12px; color:#9a9a9a; }
-  .slider { flex:1; height:4px; background:#3a3a3a; border-radius:2px; position:relative; }
-  .slider i { position:absolute; left:55%; top:-4px; width:12px; height:12px; border-radius:50%; background:#35a3e8; }
-  .alignrow { display:flex; gap:6px; margin-bottom:6px; align-items:center; }
-  .alignrow .al { font-size:11.5px; color:#8f8f8f; width:16px; flex:none; }
-  .abtn { flex:1; border:1px solid #3a3a3a; background:#2a2a2a; color:#cfcfcf; border-radius:4px; padding:6px 0; font-size:12px; text-align:center; }
-  .abtn:hover { border-color:#35a3e8; }
-  .wide { width:100%; margin-top:8px; }
-  .tk-note { font-size:11.5px; color:#8f8f8f; margin:8px 0 4px; }
-  .checkrow { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#cfcfcf; margin:8px 0; }
-  .checkbox { width:15px; height:15px; border-radius:3px; background:#1d6fa8; border:1px solid #1d6fa8; position:relative; flex:none; }
-  .checkbox:after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(42deg); }
-  .hint { font-size:11.5px; color:#8f8f8f; background:#1b1b1b; border:1px solid #2c2c2c; border-radius:4px; padding:7px 9px; margin-top:10px; }
-  .statusbar { display:flex; gap:18px; align-items:center; background:#2b2b2b; border-top:1px solid #101010; padding:6px 12px; font-size:11.5px; color:#9a9a9a; }
-  .statusbar .ok { color:#8fe09b; }
+
   .note { margin-top:14px; font-size:12px; color:var(--hatch-widget-muted, #9a9a9a); background:var(--hatch-widget-surface, #161616); border:1px solid var(--hatch-widget-border, #2c2c2c); border-radius:6px; padding:10px 14px; }
   .legend { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; font-size:12px; color:var(--hatch-widget-muted, #9a9a9a); }
   .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:baseline; }
@@ -110,13 +109,17 @@
 <body>
 <div class="sheet">
 
-  <div class="figcap">图 1 · 模块库独立窗口 —— 筛选 / 3D 缩略图 / 拖拽放置</div>
-  <div class="figsub">可停靠在 Content Browser 旁，也可浮动为独立窗口；从卡片或 3D 预览区拖出即开始放置</div>
+  <div class="figcap">图 1 · 模块库窗口 —— 「模块库 / 地编」双 Tab（方案 3）</div>
+  <div class="figsub">窗口常开可停靠；「模块库」Tab 与方案 1 v2 §3.1 一致，新增「地编」Tab 承载会话</div>
   <div class="scroll">
   <div class="uewin">
     <div class="titlebar">
       <div>模块库 <span style="color:#8f8f8f;font-weight:400">· CrossStreet（225）</span></div>
-      <div class="wins"><span title="钉住"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M7 1l4 4-2 1-2 3-1 2-1-1-3-2 1-2 3-2z" fill="currentColor"/></svg></span><span title="关闭"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"/></svg></span></div>
+      <div class="wins"><span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M7 1l4 4-2 1-2 3-1 2-1-1-3-2 1-2 3-2z" fill="currentColor"/></svg></span><span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"/></svg></span></div>
+    </div>
+    <div class="tabbar">
+      <div class="tab active">模块库</div>
+      <div class="tab">地编</div>
     </div>
     <div class="filterbar">
       <div class="search">
@@ -143,11 +146,11 @@
       <div class="grid">
         <div class="card sel">
           <div class="thumb"><svg width="104" height="78" viewBox="0 0 96 72"><rect width="96" height="72" fill="#20262c"/><rect x="18" y="10" width="60" height="52" fill="#10151a" stroke="#c9d2d9" stroke-width="4"/><rect x="24" y="16" width="48" height="40" fill="#5b8fc4"/><line x1="48" y1="16" x2="48" y2="56" stroke="#10151a" stroke-width="3"/><line x1="24" y1="36" x2="72" y2="36" stroke="#10151a" stroke-width="3"/><polygon points="24,16 44,16 30,56 24,56" fill="#ffffff" opacity="0.14"/></svg></div>
-          <div class="meta"><b>方窗 300×300</b><span>Window_300x300_02 · 拱窗</span></div>
+          <div class="meta"><b>方窗 300×300</b><span>Window_300x300_02</span></div>
         </div>
         <div class="card">
           <div class="thumb"><svg width="104" height="78" viewBox="0 0 96 72"><rect width="96" height="72" fill="#20262c"/><g fill="#5b8fc4" stroke="#c9d2d9" stroke-width="4"><circle cx="26" cy="36" r="11"/><circle cx="48" cy="36" r="11"/><circle cx="70" cy="36" r="11"/></g></svg></div>
-          <div class="meta"><b>圆窗 300×300</b><span>Window_300x300_01 · 舷窗</span></div>
+          <div class="meta"><b>圆窗 300×300</b><span>Window_300x300_01</span></div>
         </div>
         <div class="card">
           <div class="thumb"><svg width="104" height="78" viewBox="0 0 96 72"><rect width="96" height="72" fill="#20262c"/><rect x="8" y="24" width="80" height="24" fill="#10151a" stroke="#c9d2d9" stroke-width="4"/><rect x="14" y="30" width="68" height="12" fill="#5b8fc4"/><line x1="36" y1="30" x2="36" y2="42" stroke="#10151a" stroke-width="3"/><line x1="60" y1="30" x2="60" y2="42" stroke="#10151a" stroke-width="3"/></svg></div>
@@ -184,12 +187,6 @@
           <line x1="150" y1="38" x2="150" y2="150" stroke="#10151a" stroke-width="6"/>
           <line x1="84" y1="94" x2="216" y2="94" stroke="#10151a" stroke-width="6"/>
           <polygon points="84,38 130,38 100,150 84,150" fill="#ffffff" opacity="0.12"/>
-          <g stroke="#5cbf6a" stroke-width="2" fill="none">
-            <rect x="63" y="17" width="12" height="12" transform="rotate(45 69 23)"/>
-            <rect x="223" y="17" width="12" height="12" transform="rotate(45 229 23)"/>
-            <rect x="63" y="157" width="12" height="12" transform="rotate(45 69 163)"/>
-            <rect x="223" y="157" width="12" height="12" transform="rotate(45 229 163)"/>
-          </g>
           <circle cx="150" cy="172" r="6" fill="none" stroke="#e8b64c" stroke-width="2"/>
           <line x1="150" y1="164" x2="150" y2="180" stroke="#e8b64c" stroke-width="2"/>
           <line x1="142" y1="172" x2="158" y2="172" stroke="#e8b64c" stroke-width="2"/>
@@ -200,9 +197,9 @@
       </div>
       <div class="info">
         <h4>方窗 300×300 <span style="color:#8f8f8f;font-weight:400">· SM_CrossStreet_Window_300x300_02</span></h4>
-        <div class="kv"><span>尺寸 <b>300 × 14 × 300 cm</b></span><span>pivot <b>底面居中</b></span><span>socket <b style="color:#8fe09b">4</b></span><span>材质 <b>2</b></span></div>
+        <div class="kv"><span>尺寸 <b>300 × 14 × 300 cm</b>（实时读取）</span><span>socket <b style="color:#8fe09b">4</b></span><span>置信度 <b>高</b></span></div>
         <div class="btnrow">
-          <button class="btn primary">拖到场景（或直接拖拽卡片）</button>
+          <button class="btn primary">在「地编」Tab 中放置</button>
           <button class="btn">☆ 收藏</button>
           <button class="btn ghost">在场景中选中全部实例</button>
         </div>
@@ -211,134 +208,131 @@
   </div>
   </div>
 
-  <div class="figcap">图 2 · 拼装模式 —— 关卡视口幽灵预览 + 磁吸 / 对齐工具条</div>
-  <div class="figsub">拖入视口后出现幽灵预览；绿色 = 插槽吸附，蓝色 = 网格吸附；右侧工具条常驻，可一键对齐</div>
+  <div class="figcap">图 2 · 「地编」Tab —— 会话激活中（UE 模式不变）</div>
+  <div class="figsub">Tab 打开即会话激活；视口 overlay 只接管左键与快捷键，工具栏仍为「选择」模式；底部状态条 + 标题绿点为状态可见性三件套之二</div>
   <div class="scroll">
   <div class="uewin">
-    <div class="toolbar">
-      <button class="modebtn">选择</button>
-      <button class="modebtn active">街区拼装</button>
-      <button class="modebtn">地形</button>
-      <div class="tsep"></div>
-      <span class="tool">移动</span><span class="tool">旋转</span><span class="tool">缩放</span>
-      <div class="tsep"></div>
-      <span style="font-size:11.5px;color:#8f8f8f">表面吸附：开 · 角度步长：90°</span>
+    <div class="titlebar">
+      <div>模块库 <span class="live"><i></i>地编会话中</span></div>
+      <div class="wins"><span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M7 1l4 4-2 1-2 3-1 2-1-1-3-2 1-2 3-2z" fill="currentColor"/></svg></span><span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"/></svg></span></div>
     </div>
-    <div class="ebody">
-      <div class="viewport">
-        <svg viewBox="0 0 680 380">
-          <defs>
-            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#9dc0dd"/><stop offset="1" stop-color="#e6eef3"/>
-            </linearGradient>
-            <linearGradient id="gnd" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="#a3a88f"/><stop offset="1" stop-color="#7e8468"/>
-            </linearGradient>
-          </defs>
-          <rect x="0" y="0" width="680" height="215" fill="url(#sky)"/>
-          <polygon points="0,215 680,215 680,380 0,380" fill="url(#gnd)"/>
-          <g stroke="#ffffff" stroke-width="1" opacity="0.28">
-            <line x1="340" y1="215" x2="40" y2="380"/><line x1="340" y1="215" x2="180" y2="380"/>
-            <line x1="340" y1="215" x2="320" y2="380"/><line x1="340" y1="215" x2="460" y2="380"/>
-            <line x1="340" y1="215" x2="600" y2="380"/><line x1="340" y1="215" x2="700" y2="380"/>
-            <line x1="0" y1="232" x2="680" y2="232"/><line x1="0" y1="255" x2="680" y2="255"/>
-            <line x1="0" y1="285" x2="680" y2="285"/><line x1="0" y1="322" x2="680" y2="322"/>
-          </g>
-          <!-- building B1 -->
-          <g>
-            <polygon points="60,120 210,120 196,250 46,250" fill="#b9b2a4"/>
-            <polygon points="60,120 210,120 210,250 196,250" fill="#d7d2c7" transform="translate(0,0)"/>
-            <rect x="60" y="120" width="150" height="130" fill="#d7d2c7"/>
-            <g fill="#3d4a55"><rect x="76" y="136" width="30" height="26"/><rect x="116" y="136" width="30" height="26"/><rect x="156" y="136" width="30" height="26"/><rect x="76" y="172" width="30" height="26"/><rect x="116" y="172" width="30" height="26"/><rect x="156" y="172" width="30" height="26"/><rect x="76" y="208" width="30" height="26"/><rect x="116" y="208" width="30" height="26"/><rect x="156" y="208" width="30" height="26"/></g>
-            <g fill="#6f9ec7" opacity="0.85"><rect x="79" y="139" width="24" height="20"/><rect x="119" y="139" width="24" height="20"/><rect x="159" y="139" width="24" height="20"/><rect x="79" y="175" width="24" height="20"/><rect x="119" y="175" width="24" height="20"/><rect x="159" y="175" width="24" height="20"/></g>
-          </g>
-          <!-- building B2 -->
-          <g>
-            <rect x="235" y="92" width="170" height="158" fill="#ccd3d8"/>
-            <g fill="#3d4a55"><rect x="249" y="106" width="28" height="24"/><rect x="287" y="106" width="28" height="24"/><rect x="325" y="106" width="28" height="24"/><rect x="363" y="106" width="28" height="24"/><rect x="249" y="140" width="28" height="24"/><rect x="287" y="140" width="28" height="24"/><rect x="325" y="140" width="28" height="24"/><rect x="363" y="140" width="28" height="24"/><rect x="249" y="174" width="28" height="24"/><rect x="287" y="174" width="28" height="24"/><rect x="325" y="174" width="28" height="24"/><rect x="363" y="174" width="28" height="24"/></g>
-            <rect x="235" y="208" width="170" height="42" fill="#2b3138"/>
-            <rect x="249" y="216" width="60" height="26" fill="#4a6a86"/><rect x="321" y="216" width="70" height="26" fill="#4a6a86"/>
-          </g>
-          <!-- target wall with sockets -->
-          <g>
-            <rect x="440" y="140" width="120" height="110" fill="#c3c9ce"/>
-            <rect x="440" y="140" width="120" height="14" fill="#aeb6bd"/>
-            <g fill="none" stroke="#5cbf6a" stroke-width="2">
-              <rect x="452" y="170" width="10" height="10" transform="rotate(45 457 175)"/>
-              <rect x="538" y="170" width="10" height="10" transform="rotate(45 543 175)"/>
-            </g>
-          </g>
-          <!-- ghost preview -->
-          <g>
-            <rect x="470" y="158" width="90" height="84" fill="#5cbf6a" opacity="0.32"/>
-            <rect x="470" y="158" width="90" height="84" fill="none" stroke="#5cbf6a" stroke-width="2" stroke-dasharray="7 4"/>
-            <rect x="482" y="170" width="66" height="60" fill="none" stroke="#eafff0" stroke-width="1.4" opacity="0.8"/>
-            <line x1="515" y1="170" x2="515" y2="230" stroke="#eafff0" stroke-width="1.2" opacity="0.8"/>
-          </g>
-          <!-- palms -->
-          <g stroke="#6b4f35" stroke-width="5" fill="none"><path d="M28 250 C 26 225, 30 210, 28 196"/></g>
-          <g fill="#3f7d44"><ellipse cx="28" cy="188" rx="20" ry="8" transform="rotate(-18 28 188)"/><ellipse cx="28" cy="188" rx="20" ry="8" transform="rotate(14 28 188)"/><ellipse cx="28" cy="184" rx="16" ry="7" transform="rotate(-42 28 184)"/></g>
-          <g stroke="#6b4f35" stroke-width="5" fill="none"><path d="M626 258 C 624 235, 628 222, 626 210"/></g>
-          <g fill="#3f7d44"><ellipse cx="626" cy="202" rx="20" ry="8" transform="rotate(-14 626 202)"/><ellipse cx="626" cy="202" rx="20" ry="8" transform="rotate(18 626 202)"/></g>
-          <!-- cursor -->
-          <g stroke="#ffffff" stroke-width="1.4" opacity="0.9">
-            <line x1="505" y1="196" x2="525" y2="196"/><line x1="515" y1="186" x2="515" y2="206"/>
-          </g>
-          <!-- labels -->
-          <g font-family="inherit">
-            <rect x="446" y="128" width="150" height="22" rx="4" fill="rgba(10,12,14,.78)"/>
-            <text x="521" y="143" fill="#eafff0" font-size="12" text-anchor="middle">Window_300x300_02</text>
-            <rect x="478" y="248" width="74" height="22" rx="11" fill="#2f7d44"/>
-            <text x="515" y="263" fill="#ffffff" font-size="12" text-anchor="middle">插槽吸附</text>
-          </g>
-        </svg>
-        <div class="vp-tag">透视 · L_CrossStreet_V2 · 光照已构建</div>
-      </div>
-      <div class="toolkit">
-        <div class="tk-sec">
-          <h5>磁吸 SNAP</h5>
-          <div class="snapgrid">
-            <div class="snap on blue">网格</div>
-            <div class="snap on blue">表面</div>
-            <div class="snap on">插槽</div>
-            <div class="snap">角度</div>
-          </div>
-          <div class="sliderow"><span>插槽半径</span><div class="slider"><i></i></div><span>200</span></div>
-          <div class="sliderow"><span>网格步长</span><select class="sel" style="flex:1"><option>400</option><option>200</option><option>100</option><option>50</option></select></div>
+    <div class="tabbar">
+      <div class="tab">模块库</div>
+      <div class="tab active">地编</div>
+    </div>
+    <div class="sessrow">
+      <span class="dot"></span><span>会话激活中</span>
+      <span class="mod">方窗 300×300 · Window_300x300_02</span>
+      <span style="color:#8f8f8f">连续放置开</span>
+      <button class="btn danger" style="margin-left:auto;padding:5px 12px">结束会话</button>
+    </div>
+    <div class="sessbody">
+      <div class="sessleft">
+        <div class="sec">
+          <h5>吸附 SNAP</h5>
+          <div class="switchrow"><span>吸附总开关</span><span class="switch"></span></div>
+          <div class="switchrow"><span>网格步长</span><select class="sel"><option>400</option><option>200</option><option>100</option></select></div>
+          <div class="switchrow"><span>高级（插槽半径…）</span><span style="color:#8f8f8f">▾</span></div>
+          <div class="hint">优先级：插槽 → 邻接 → 表面 → 网格<br>当前：<b style="color:#8fe09b">邻接吸附</b></div>
         </div>
-        <div class="tk-sec">
-          <h5>对齐 ALIGN</h5>
-          <div class="tk-note">基准：最后选中的 Actor（已选 3）</div>
+        <div class="sec">
+          <h5>整理 ARRANGE</h5>
           <div class="alignrow"><span class="al">X</span><span class="abtn">左</span><span class="abtn">中</span><span class="abtn">右</span></div>
           <div class="alignrow"><span class="al">Y</span><span class="abtn">左</span><span class="abtn">中</span><span class="abtn">右</span></div>
           <div class="alignrow"><span class="al">Z</span><span class="abtn">底</span><span class="abtn">中</span><span class="abtn">顶</span></div>
-          <button class="btn primary wide">沿街面对齐（+Y 拉齐）</button>
+          <button class="btn primary wide">沿街面对齐（点基准面）</button>
+          <button class="btn wide">等距分布</button>
+          <div class="btnrow" style="margin-top:8px">
+            <button class="btn ghost">选中同款</button>
+            <button class="btn ghost">替换…</button>
+            <button class="btn ghost">吸管</button>
+          </div>
         </div>
-        <div class="tk-sec">
-          <h5>放置 PLACE</h5>
-          <div class="checkrow"><span class="checkbox"></span>连续放置</div>
-          <div class="sliderow"><span>旋转步长</span><select class="sel" style="flex:1"><option>90°</option><option>45°</option><option>15°</option></select></div>
-          <div class="hint">R 旋转 · Shift+R 反向<br>Esc / 右键退出放置</div>
+        <div class="sec">
+          <h5>快捷键</h5>
+          <div class="hint">R 旋转 · [ ] 换款<br>Ctrl 暂停吸附 · Esc 退出会话</div>
         </div>
       </div>
-    </div>
-    <div class="statusbar">
-      <span>已放置 <b style="color:#ddd">12</b></span>
-      <span class="ok">● 插槽磁吸生效中</span>
-      <span style="margin-left:auto">Ctrl+Z 可撤销</span>
+      <div class="sessright">
+        <div class="toolbar" style="border-bottom:1px solid #101010">
+          <button class="modebtn active">选择</button>
+          <button class="modebtn">地形</button>
+          <div class="tsep"></div>
+          <span class="tool">移动</span><span class="tool">旋转</span><span class="tool">缩放</span>
+          <span style="font-size:11.5px;color:#8f8f8f;margin-left:auto">UE 模式未切换</span>
+        </div>
+        <svg class="scene" viewBox="0 0 680 340">
+          <defs>
+            <linearGradient id="sky3" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#9dc0dd"/><stop offset="1" stop-color="#e6eef3"/>
+            </linearGradient>
+            <linearGradient id="gnd3" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#a3a88f"/><stop offset="1" stop-color="#7e8468"/>
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="680" height="200" fill="url(#sky3)"/>
+          <polygon points="0,200 680,200 680,340 0,340" fill="url(#gnd3)"/>
+          <g stroke="#ffffff" stroke-width="1" opacity="0.28">
+            <line x1="340" y1="200" x2="40" y2="340"/><line x1="340" y1="200" x2="180" y2="340"/>
+            <line x1="340" y1="200" x2="320" y2="340"/><line x1="340" y1="200" x2="460" y2="340"/>
+            <line x1="340" y1="200" x2="600" y2="340"/><line x1="340" y1="200" x2="700" y2="340"/>
+            <line x1="0" y1="218" x2="680" y2="218"/><line x1="0" y1="244" x2="680" y2="244"/>
+            <line x1="0" y1="276" x2="680" y2="276"/><line x1="0" y1="312" x2="680" y2="312"/>
+          </g>
+          <g>
+            <rect x="60" y="105" width="150" height="120" fill="#d7d2c7"/>
+            <g fill="#3d4a55"><rect x="76" y="121" width="30" height="26"/><rect x="116" y="121" width="30" height="26"/><rect x="156" y="121" width="30" height="26"/><rect x="76" y="157" width="30" height="26"/><rect x="116" y="157" width="30" height="26"/><rect x="156" y="157" width="30" height="26"/></g>
+            <g fill="#6f9ec7" opacity="0.85"><rect x="79" y="124" width="24" height="20"/><rect x="119" y="124" width="24" height="20"/><rect x="159" y="124" width="24" height="20"/></g>
+          </g>
+          <g>
+            <rect x="235" y="80" width="170" height="145" fill="#ccd3d8"/>
+            <g fill="#3d4a55"><rect x="249" y="94" width="28" height="24"/><rect x="287" y="94" width="28" height="24"/><rect x="325" y="94" width="28" height="24"/><rect x="363" y="94" width="28" height="24"/><rect x="249" y="128" width="28" height="24"/><rect x="287" y="128" width="28" height="24"/><rect x="325" y="128" width="28" height="24"/><rect x="363" y="128" width="28" height="24"/></g>
+            <rect x="235" y="192" width="170" height="33" fill="#2b3138"/>
+          </g>
+          <g>
+            <rect x="440" y="128" width="120" height="100" fill="#c3c9ce"/>
+            <rect x="440" y="128" width="120" height="12" fill="#aeb6bd"/>
+          </g>
+          <g>
+            <rect x="470" y="146" width="90" height="78" fill="#5cbf6a" opacity="0.32"/>
+            <rect x="470" y="146" width="90" height="78" fill="none" stroke="#5cbf6a" stroke-width="2" stroke-dasharray="7 4"/>
+            <rect x="482" y="158" width="66" height="54" fill="none" stroke="#eafff0" stroke-width="1.4" opacity="0.8"/>
+            <line x1="515" y1="158" x2="515" y2="212" stroke="#eafff0" stroke-width="1.2" opacity="0.8"/>
+          </g>
+          <g stroke="#6b4f35" stroke-width="5" fill="none"><path d="M28 232 C 26 210, 30 198, 28 186"/></g>
+          <g fill="#3f7d44"><ellipse cx="28" cy="178" rx="20" ry="8" transform="rotate(-18 28 178)"/><ellipse cx="28" cy="178" rx="20" ry="8" transform="rotate(14 28 178)"/></g>
+          <g stroke="#ffffff" stroke-width="1.4" opacity="0.9">
+            <line x1="505" y1="184" x2="525" y2="184"/><line x1="515" y1="174" x2="515" y2="194"/>
+          </g>
+          <g font-family="inherit">
+            <rect x="446" y="116" width="150" height="22" rx="4" fill="rgba(10,12,14,.78)"/>
+            <text x="521" y="131" fill="#eafff0" font-size="12" text-anchor="middle">Window_300x300_02</text>
+            <rect x="478" y="230" width="74" height="22" rx="11" fill="#2f7d44"/>
+            <text x="515" y="245" fill="#ffffff" font-size="12" text-anchor="middle">邻接吸附</text>
+          </g>
+        </svg>
+        <div class="vp-tag">透视 · L_CrossStreet_V2</div>
+        <div class="sess-tag">● 地编会话</div>
+        <div class="statusstrip">
+          <span><span class="k">放置中</span> · 方窗 300×300</span>
+          <span>R 旋转</span><span>[ ] 换款</span><span>Ctrl 暂停吸附</span><span>Esc 退出会话</span>
+          <span class="dim">overlay：左键接管，其余透传</span>
+        </div>
+      </div>
     </div>
   </div>
   </div>
 
   <div class="legend">
-    <span><span class="dot" style="background:#5cbf6a"></span>绿色 = 插槽吸附</span>
-    <span><span class="dot" style="background:#5aa9e6"></span>蓝色 = 网格 / 表面吸附</span>
-    <span><span class="dot" style="background:#e8b64c"></span>黄色 = pivot 标记</span>
+    <span><span class="dot" style="background:#5cbf6a"></span>绿色 = 插槽 / 邻接吸附命中</span>
+    <span><span class="dot" style="background:#5aa9e6"></span>蓝色 = 网格吸附</span>
+    <span><span class="dot" style="background:#e8b64c"></span>黄色 = pivot 标记（实时读取）</span>
   </div>
 
   <div class="note">
-    效果图说明：两张均为静态 mockup，用于评审布局与交互流程，不代表最终视觉。3D 缩略图示意 Content Browser 同款渲染管线；
-    视口场景为示意（实际为编辑器实时渲染）。配色沿用 UE5 Slate 深色主题，幽灵预览与状态色按设计文档中的语义执行。
+    方案 3 效果图：会话寄生在窗口「地编」Tab 上，UE 模式全程保持「选择」不变。
+    视口 overlay 只接管左键与快捷键（右键 orbit / 中键 pan / 滚轮透传）；状态可见性靠视口底部状态条、ghost 颜色与窗口标题绿点三件套。
+    吸附优先级与数据策略沿用方案 2；拖拽通道与 P0 验证沿用方案 1 v2。
   </div>
 
 </div>
