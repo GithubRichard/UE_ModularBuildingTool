@@ -3,33 +3,44 @@
 > 目标：给地编同学一个"模块库独立窗口 + 场景内快速拼装"的编辑模式。
 > 核心能力：组件快速筛选、磁吸、对齐、选择；独立窗口内 3D 渲染、拖拽进场景。
 > 范围：只做编辑器工具，不改运行时逻辑；数据源复用 ModularBuilding 现有注册表。
+> **目标引擎：UE 5.7。** 暂不承诺兼容其他版本，升级引擎时单独评估。
+
+**当前状态：** 设计修订版，待 P0 原型验证。标"**待 P0 验证**"的内容是假设，不是定论；吸附阈值等数值是初始值，需要试用后调整。
 
 ---
 
 ## 1. 总体架构
 
 ```
-CrossStreetLevelTools（Editor 模块，C++）
+ModularBuildingTools（插件）/ ModularLevelTools（Editor 模块，C++，UE 5.7）
 │
 ├── 模块库窗口 Palette（SDockTab，可停靠/独立浮动）
-│   ├── 筛选条：搜索框、分类、标签、尺寸、收藏
+│   ├── 筛选：分类树、搜索框、标签、尺寸、收藏
 │   ├── 卡片网格：3D 缩略图（Content Browser 同款管线）+ 中文名 + 尺寸
-│   ├── 3D 大预览：SEditorViewport + FPreviewScene，选中模块自动旋转展示
-│   └── 拖拽源：FModuleDragDropOp（继承 FAssetDragDropOp，走编辑器原生放置通道）
+│   ├── 3D 大预览：SEditorViewport + FEditorViewportClient + FPreviewScene
+│   └── 拖拽源：P0 选定的拖拽通道（见 2.3）
 │
-├── 拼装模式 EdMode（EM_CrossStreetPlace）
-│   ├── 幽灵预览：半透明 ghost actor，实时跟随鼠标
-│   ├── 磁吸：网格 / 表面 / 插槽（registry sockets）/ 角度
+├── 放置服务 FModulePlacementService（不依赖 EdMode 是否激活）
+│   ├── 吸附求解：插槽 / 表面 / 网格 / 角度
+│   ├── 幽灵预览：半透明 ghost，状态色见 4.1
+│   └── 锚点换算：统一处理 pivot（见 4.4）
+│
+├── 拼装模式 EdMode（EM_ModularPlace）
+│   ├── 连续放置会话、已有 Actor 的吸附微调
 │   └── 工具条 Toolkit：磁吸开关、对齐按钮、放置选项
 │
-├── 放置工厂 UCrossStreetPlaceFactory（继承 UActorFactoryStaticMesh）
-│   └── 强制 scale=1、pivot 补偿（读 geometry.json）、打 module=<id> 标签
+├── 对齐服务 FModuleAlignService（可从 Palette 或 Toolkit 调用）
 │
-└── 数据层 FCrossStreetRegistry（编辑器启动时加载）
-    └── registry.json + geometry.json：分类/标签/中文名/尺寸/pivot/socket
+├── 放置工厂 UModularPlaceFactory（继承 UActorFactoryStaticMesh）
+│   └── 强制 scale=1、经放置服务做 pivot 换算（见 4.4）、打 module=<id> 标签
+│
+└── 数据层 FModularKitRegistry（编辑器启动时加载，可手动刷新）
+    └── registry.json + geometry.json：分类/标签/中文名/尺寸/pivot/socket（字段要求见第 5 节）
 ```
 
-**为什么这样拆**：窗口、模式、工厂是 UE 编辑器三件套里正交的三块，可以分阶段交付、独立测试。数据层直接吃你们现在的 JSON，不用再导一遍。
+**为什么这样拆**：窗口、模式、工厂仍是正交的三块，可以分阶段交付。吸附和对齐单独做成服务，因为拖拽放置、连续放置和微调都要复用同一套结果，不能绑在某一个入口上。数据层直接读现有 JSON，不用再导一遍。
+
+**命名**：代码不写死 `CrossStreet`。数据路径已经按 `data/kits/<kit>/` 组织，现在通用命名的成本最低。
 
 ---
 
@@ -40,35 +51,57 @@ CrossStreetLevelTools（Editor 模块，C++）
 | | Slate C++ | UMG Editor Utility Widget |
 |---|---|---|
 | 3D 实时渲染 | ✅ SEditorViewport + FPreviewScene（Mesh 编辑器同款） | ❌ UMG 没有原生 3D 视口，只能放预渲染图 |
-| 拖拽到场景视口 | ✅ FDragDropOperation 全 Slate 通用，可被视口接收 | ⚠️ UMG 的拖拽载荷视口不认，要另写 C++ 接收端 |
+| 拖拽到场景视口 | ✅ FDragDropOperation 全 Slate 通用 | ⚠️ UMG 的拖拽载荷视口不认，要另写 C++ 接收端 |
 | 缩略图 | ✅ FAssetThumbnailPool（Content Browser 同款） | ⚠️ 需自己画 |
 | 开发量 | 大（要会 Slate） | 小，但能力天花板低 |
 
-**结论**：直接上 Slate C++。UMG 方案看似快，但"3D 渲染 + 拖进场景"这两条核心需求它都满足不了，最后还是要补 C++，不如一次到位。
+**结论**：直接上 Slate C++。"3D 渲染 + 拖进场景"这两条核心需求，UMG 最后都要补 C++。
 
-### 2.2 拼装交互：经典 FEdMode（推荐）vs Interactive Tools Framework
+### 2.2 拼装交互：在 5.7 上比较后选定
 
-- **经典 FEdMode**：`FEdMode` 子类 + `FEditorModeRegistry` 注册。API 稳定十年，文档和参考多（UE 自带 Place 模式就是这个路子），和你们现有的 C++ 风格更合拍。
-- **Interactive Tools Framework**（UE5 新）：`UBaseEdMode` + `UClickDragInputBehavior`，更现代，但概念多、调试链长。
+`FEdMode` 属于旧体系，`UEdMode` 是当前的编辑器模式基类，`UBaseLegacyWidgetEdMode` 用于帮助使用属性或变换控件的旧模式过渡。因此不再以"API 稳定、参考多"作为选择经典 `FEdMode` 的理由。
 
-**结论**：FEdMode。等模式跑顺了，个别复杂笔刷再考虑 Tools Framework。
+| 候选 | 优点 | 风险 |
+|---|---|---|
+| `UBaseLegacyWidgetEdMode`（**默认候选**） | 属于 `UEdMode` 体系，同时保留 Gizmo 相关能力 | 资料较少，需读引擎源码 |
+| 经典 `FEdMode` | 资料多，容易上手 | 继续依赖旧体系 |
+| 纯 `UEdMode` + Interactive Tools Framework | 体系最新 | 概念多，调试链长，对本需求偏重 |
 
-### 2.3 拖拽：继承 FAssetDragDropOp（关键技巧）
+**结论（待 P0 验证）**：先用 `UBaseLegacyWidgetEdMode` 验证三项能力：Gizmo 拖动时能否改写吸附结果、放置会话能否接管鼠标和按键、Toolkit 能否正常停靠。任一项无法满足时退回经典 `FEdMode`。复杂笔刷以后再考虑 Tools Framework。
 
-不要自己发明拖拽协议。让 `FModuleDragDropOp : public FAssetDragDropOp`，把 StaticMesh 的 `FAssetData` 装进它父类的 `Assets` 数组，再额外带一个 `ModuleId` 字段。好处：
+### 2.3 拖拽：必须先解决原生通道与磁吸的冲突
 
-- 拖进关卡视口时，**编辑器原生放置通道直接认**（和从 Content Browser 拖进来行为一致：自动找 ActorFactory、自动处理放置位置）。
-- 你们的 `UCrossStreetPlaceFactory` 在 `PostSpawnActor` 里做三件事：强制 scale=1、按 registry pivot 做位置补偿、打 `module=<id>` 标签。之后"按模块选中"就靠这个标签。
+原生通道由视口客户端负责更新预览 Actor（`UpdateDropPreviewActors`）和执行放置（`DropObjectsAtCoordinates`）。自定义 ghost 和插槽吸附很可能无法插入这条链路，Slate 拖拽期间 EdMode 也可能收不到正常的鼠标事件（**待 P0 验证**）。
+
+| 方案 | 做法 | 取舍 |
+|---|---|---|
+| A：自管拖拽（**优先验证**） | 自定义 `FDragDropOperation`，不继承 `FAssetDragDropOp`。在 `OnDragged` 中定位光标下的关卡视口，调用放置服务更新 ghost；在 `OnDrop` 中生成 Actor | 手感统一；需自行处理视口命中、生成和取消 |
+| B：拖入后转交 EdMode | 光标进入视口时启动放置会话，由 EdMode 接管 ghost 和放置 | 与连续放置天然一致；交接时机最容易出问题 |
+| C：原生通道（兜底） | `FAssetDragDropOp::New(AssetData, Factory)` 传入 `UModularPlaceFactory` | 实现最快，但拖拽时没有自定义 ghost 和插槽吸附，只能放下后再微调 |
+
+**选择标准**：
+1. 拖拽全程能显示吸附结果。
+2. 松手结果与预览完全一致。
+3. 一次放置对应一次撤销。
+4. 按 `Esc` 或拖出视口后不残留 Actor。
+
+A、B 都做不到时才选 C，同时把"拖拽时插槽吸附"移出需求。
+
+**其他说明**：
+- 如果使用原生通道，优先直接调用带 Factory 的 `New`，不要先写子类。`ModuleId` 可用资产路径从注册表反查。
+- 原文中的"父类 `Assets` 数组"应为受保护成员 `AssetData`，公开读取接口是 `GetAssets()`。
+- 查到的 API 页面是最新版或未标注 5.7 的文档，以 5.7 头文件为准。
 
 ### 2.4 3D 预览与缩略图
 
-- **卡片网格**：`FAssetThumbnailPool`（256 常驻）+ `FAssetThumbnail`，225 个模块无压力，和 Content Browser 同一渲染管线，效果一致。
-- **大预览窗**：`SEditorViewport` 子类 + `FPreviewScene`，放选中模块，Tick 里缓慢旋转；支持滚轮缩放、右键旋转（直接复用 `FPreviewScene` 的默认输入）。
-- 备选：如果缩略图管线调不通，你们已有截图管线（capture stage），可以预渲染 225 张 PNG 当缩略图——效果差一档，但零风险。
+- **卡片网格**：`FAssetThumbnailPool`（256 常驻）+ `FAssetThumbnail`，容量够覆盖 225 个模块，和 Content Browser 同一渲染管线。
+- **大预览窗**：`SEditorViewport` 子类 + `FEditorViewportClient` + `FPreviewScene`。输入由 `FEditorViewportClient` 处理，`FPreviewScene` 只提供场景。
+- **预览交互**：Tick 里缓慢旋转；支持滚轮缩放、右键旋转；从预览区拖出开始放置。
+- **备选**：缩略图管线调不通时，用现有 capture 阶段预渲染 225 张 PNG，效果差一档，但风险低。
 
 ### 2.5 磁吸数据源
 
-你们 mesh_meta 阶段已经采了"墙面 Socket"，这就是插槽磁吸的数据。不用再采。EdMode 读 `FCrossStreetRegistry` 里的 socket 列表即可。角度磁吸和网格磁吸是纯数学，不依赖数据。
+mesh_meta 阶段已采集"墙面 Socket"，但当前数据未必足够支持 4.2 的匹配规则，需要先抽查（见第 9 节）。角度和网格磁吸是纯数学，不依赖数据。
 
 ---
 
@@ -78,107 +111,256 @@ CrossStreetLevelTools（Editor 模块，C++）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 模块库                                         [钉住][x] │
+│ 模块库 · CrossStreet（225）                     [钉住][x] │
 ├──────────────────────────────────────────────────────────┤
-│ 🔍 [ 搜索: 窗…          ] [分类: 全部 ▾] [标签 ▾] [☆收藏] │
+│ 🔍 [ 搜索: 窗…          ] [标签 ▾] [尺寸 ▾] [☆收藏]        │
 ├────────┬─────────────────────────────────────────────────┤
 │ 分类   │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐             │
-│ 墙体12 │  │ 3D   │ │ 3D   │ │ 3D   │ │ 3D   │  ← 卡片网格  │
-│ 窗户9  │  │ 缩略 │ │      │ │      │ │      │    点击选中   │
-│ 门9    │  └──────┘ └──────┘ └──────┘ └──────┘    拖拽进场景 │
-│ 招牌27 │   方窗300x300      圆窗300x300  …               │
-│ 雨棚4  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐             │
-│ 植物15 │  │      │ │      │ │      │ │      │             │
-│ …     │  └──────┘ └──────┘ └──────┘ └──────┘             │
-│        ├─────────────────────────────────────────────────┤
-│        │ 3D 预览 [旋转中的大模型]   400×14×300cm          │
+│ 全部225│  │ 3D   │ │ 3D   │ │ 3D   │ │ 3D   │  ← 卡片网格  │
+│ 墙体12 │  │ 缩略 │ │      │ │      │ │      │    点击选中   │
+│ 窗户9  │  └──────┘ └──────┘ └──────┘ └──────┘    拖拽进场景 │
+│ 门9    │   方窗300x300      圆窗300x300  …               │
+│ 招牌27 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐             │
+│ 雨棚4  │  │      │ │      │ │      │ │      │             │
+│ 植物15 │  └──────┘ └──────┘ └──────┘ └──────┘             │
+│ …     ├─────────────────────────────────────────────────┤
+│        │ 3D 预览 [旋转中的大模型]   300×14×300cm          │
 │        │ pivot: 底面居中   socket: 4                     │
 │        │ [拖到场景] [☆收藏] [在场景中选中全部实例]         │
 └────────┴─────────────────────────────────────────────────┘
 ```
 
-- **筛选**：搜索框匹配中文名/模块 ID/标签（拼音首字母可二期）；分类树左侧，数字是计数；多标签交集过滤。目标：225 个模块，3 次点击内定位。
+- **筛选**：搜索框匹配中文名/模块 ID/标签（拼音首字母可二期）；分类只保留左侧树，包含"全部"和计数；多标签取交集；尺寸按宽×高筛选。目标：225 个模块，3 次点击内定位。
 - **卡片**：3D 缩略图 + 中文名 + 尺寸一行。悬停浮起尺寸/pivot/socket 摘要。
 - **卡片右键菜单**：在场景中选中全部实例 / 隔离显示 / 聚焦 / 收藏。
 - **双击卡片**：选中场景中全部该模块实例并聚焦（frame）。
-- **拖拽**：从卡片或从 3D 大预览区拖出，`FModuleDragDropOp`，拖到关卡视口松手即放置。
+- **拖拽**：从卡片或 3D 大预览区拖出，拖到关卡视口松手即放置。
 
 ### 3.2 核心流程
 
 **流程 A：筛选 → 拖放（最常用）**
 1. `窗口 > 模块库` 打开（或工具栏按钮，可停靠在 Content Browser 旁）。
 2. 搜索"圆窗" → 网格剩 3 张卡 → 拖"圆窗300x300"到关卡视口。
-3. 视口内出现半透明 ghost，跟随鼠标；开着插槽磁吸时靠近墙体 socket 自动吸附变绿。
-4. 松手 → Actor 生成（scale 强制 1，已按 pivot 补偿，标签 `module=Window_300x300_02`）。
-5. 连续放置模式下可继续点放；`Esc` / 右键退出。
+3. 视口内出现半透明 ghost，跟随鼠标；开着插槽磁吸时靠近目标 socket 自动吸附变绿。
+4. 松手 → Actor 生成（scale 强制 1，已按 pivot 补偿，标签 `module=Window_300x300_01`），可一次撤销。
+5. 开启"连续放置"时，松手后自动进入拼装模式并继续点放；`Esc` 或右键单击退出。
+
+> **分期**：第 3 步的插槽吸附和第 5 步的连续放置属于 P2。P1 的磁吸先用 UE 原生网格吸附顶着；如果 P0 选了方案 C，拖拽时显示的是原生预览。
 
 **流程 B：磁吸微调**
 1. 激活拼装模式（工具栏 Mode 下拉）。
-2. Toolkit 开关：`[网格] [表面] [插槽] [角度]`，插槽半径滑杆，网格步长 400/200/100/50。
-3. 拖动已有 Actor：ghost 实时显示吸附结果——绿色=插槽吸附，蓝色=网格吸附，无色=自由。
-4. `R` 旋转（按角度步长 90/45/15），`Shift+R` 反向。
+2. Toolkit 开关：`[网格] [表面] [插槽] [角度]`，吸附半径滑杆，网格步长 400/200/100/50，角度步长 90/45/15。
+3. 用 Gizmo 拖动已有 Actor：实时显示吸附结果（**待 P0 验证**：能否在 Gizmo 拖动时改写位置）。
+4. 用旋转 Gizmo 按角度步长旋转已有 Actor。
 
 **流程 C：对齐**
-1. 多选 Actor（最后一个选中的为基准）。
-2. Toolkit 对齐区：X `[左|中|右]`，Y `[左|中|右]`，Z `[底|中|顶]`；另有 `[沿街面对齐]`（把选中 Actor 的 +Y 前脸对到同一平面——你们街景最高频的操作）。
-3. 以包围盒为准，一键执行，可撤销（走标准事务 `GEditor->BeginTransaction`）。
+1. 多选 Actor（最后选中的为基准，并在视口高亮）。
+2. 对齐区：`X [左|中|右]`，`Y [前|中|后]`，`Z [底|中|顶]`；另有 `[沿街面对齐]`。
+3. 一键执行，整组操作一次撤销（`FScopedTransaction`，并对每个 Actor 调用 `Modify()`）。
 
 **流程 D：按模块选择**
-1. 卡片右键 → 在场景中选中全部实例；或 Toolkit 里按分类多选下拉框。
+1. 卡片右键 → 在场景中选中全部实例；或 Toolkit 里按分类多选。
 2. 配合隔离显示（`只显示选中`），快速检查某一类构件的拼装质量。
 
-### 3.3 快捷键（建议）
+### 3.3 模式边界
 
-| 按键 | 动作 |
-|---|---|
-| `Shift+Space` 或工具栏 | 打开/聚焦模块库 |
-| 拼装模式内 `R` / `Shift+R` | 旋转 ±步长 |
-| 拼装模式内 `Esc` / 右键 | 退出放置 |
-| `Ctrl+Alt+G` | 开关网格磁吸（原生已支持，可沿用） |
-| Toolkit 按钮 | 对齐六向 + 沿街面对齐 |
+| 操作 | 是否需要拼装模式 | 说明 |
+|---|---|---|
+| 筛选、预览、按模块选择 | 否 | Palette 始终可用 |
+| 从 Palette 单次拖放 | 否 | 使用放置服务和当前磁吸设置 |
+| 连续放置 | 是 | 松手后自动进入，退出会话后回到之前的模式 |
+| 对齐 | 否 | 对齐服务可从 Palette 调用，Toolkit 提供同样入口 |
+| 已有 Actor 的自定义吸附微调 | 是 | 模式外仅保留 UE 原生吸附 |
+
+### 3.4 快捷键（建议）
+
+| 按键 | 生效范围 | 动作 |
+|---|---|---|
+| `R` / `Shift+R` | **仅放置会话内**（有 ghost 时） | 旋转 ±步长；会话外保持 UE 默认的缩放工具 |
+| `Esc` | 放置会话内 | 退出放置 |
+| 右键**单击** | 放置会话内 | 退出放置；右键**按住拖动**保持相机操作 |
+| 按住 `Ctrl` | 放置/吸附时 | 临时禁用吸附（**待 P0 核对冲突**） |
+| `Shift+Space` 或工具栏 | 全局 | 打开/聚焦模块库（通过 `TCommands` 提供可改键命令，默认键待 5.7 核对冲突） |
+| `Ctrl+Alt+G` | 全局 | 开关网格磁吸（原设计沿用原生快捷键，待 5.7 核对） |
+| Toolkit 按钮 | Palette / 拼装模式 | 对齐六向 + 沿街面对齐 |
 
 ---
 
 ## 4. 磁吸与对齐：行为规格
 
-### 4.1 磁吸优先级（同时命中时）
+### 4.1 吸附求解与状态色
 
-`插槽 > 表面 > 网格`。ghost 颜色即状态：绿/蓝/白。阈值：插槽 200cm 内最近 socket；表面沿法线偏移模块半厚。
+吸附分为两层：
+1. **插槽**：命中时同时决定位置和朝向，并覆盖下一层。
+2. **表面 + 网格**：表面决定所在平面和法线，模块沿法线偏移半厚；网格在该平面内量化位置，两者可以同时生效。
 
-### 4.2 插槽磁吸细节
+ghost 和状态栏使用同一套颜色：
 
-- 数据源：`FCrossStreetRegistry`（mesh_meta 采的 socket：位置 + 朝向）。
-- 悬停 Actor 时，200cm 内所有 socket 显示为小菱形标记；ghost 吸附到最近 socket，位置+朝向一次对齐。
-- 你们的 plan.py 已经写过 pivot 补偿数学，C++ 侧照搬（`geometry.json` 的 pivot norm 全套用上）。
+| 颜色 | 状态 |
+|---|---|
+| 绿 | 插槽吸附 |
+| 蓝 | 表面和/或网格吸附 |
+| 白 | 自由放置 |
+| 红 | 无效：没有可用落点，或目标不可编辑 |
+
+**防抖与阈值（初始值，试用后调整）**：
+- 插槽同时满足世界距离 ≤ 100cm（工具条可调，最大 200cm）和屏幕距离 ≤ 32px。
+- 脱离距离为吸附距离的 1.25 倍，防止在两个候选之间来回跳动。
+- 按住临时禁用键时，所有吸附失效，显示白色。
+
+原方案固定 200cm，接近窗宽的 2/3，容易让自由摆放变得困难，因此不再作为默认值。
+
+### 4.2 插槽匹配规则
+
+以下是建议规则，需在数据抽查后确认（见第 9 节）。
+
+**数据（见第 5 节）**：每个 socket 需要 `name`、`transform`、`role`（`target` 或 `plug`）、`types`。
+
+| 问题 | 规则 |
+|---|---|
+| ghost 的对齐点 | 用模块的 `plug` socket；没有时用统一放置锚点（见 4.4） |
+| 兼容性 | `plug.types` 与 `target.types` 有交集才算候选 |
+| 占用 | 不保存占用状态；实时查询目标位置附近是否已有同类模块，有则不作为候选 |
+| 多对多 | 枚举所有兼容组合，先比屏幕距离，再比世界距离 |
+| 朝向 | 吸附后对齐 `target` 的朝向 |
+| 吸附时按 `R` | 不脱离，切换该插槽的下一个合法朝向；只有一个合法朝向时不改变 |
+| 显示 | 悬停时，吸附半径内的兼容 socket 显示为小菱形；不兼容或已占用的不显示 |
 
 ### 4.3 对齐细节
 
-- 基准：最后选中的 Actor（UE 惯例）；单选时禁用多选对齐，只留沿街面对齐。
-- 沿街面对齐：取每个 Actor 包围盒 +Y 最大面，对齐到基准的前脸平面——拼街墙时一键拉齐。
-- 全部走 `FScopedTransaction`，支持 Ctrl+Z。
+- **基准**：最后选中的 Actor（UE 惯例）；单选时禁用多选对齐。单选的沿街面对齐保留，但基准来源待定（见第 9 节）。
+- **坐标系**：默认基准 Actor 局部坐标，可切换到世界坐标。十字路口有多个朝向，不能假设街道沿世界轴。
+- **计算范围**：用 Mesh 局部包围盒的八个角点投影到基准轴上，不用世界 AABB，避免旋转后包围盒变大。
+
+**沿街面对齐**：
+1. 目标平面 = 基准 Actor 的 `front_plane`，法线 = 基准局部前向（+Y）。
+2. 其他 Actor 只沿该法线移动，把各自的 `front_plane` 对到目标平面，不改旋转。
+3. 与基准朝向相差超过 5°（初始值）的 Actor 跳过，并在状态栏说明跳过数量。
+4. 缺少 `front_plane` 的模块回退到局部包围盒，并提示可能受招牌、雨棚凸出影响。
+
+### 4.4 Pivot 与放置锚点
+
+只在工厂里补偿不够：网格吸附、旋转和对齐同样受 pivot 影响。
+
+- **首选**：在资产管线中统一 pivot，工具不再做补偿。
+- **无法统一时**：由 `FModulePlacementService` 根据 `geometry.json` 提供统一的"放置锚点 ↔ Actor 变换"换算，放置、吸附、旋转和对齐都调用它，不在各处重复写数学。`plan.py` 的 pivot 公式可作为参考，并用同一批样例校验 C++ 与 Python 结果一致。
+- **限制**：模式外的原生 Gizmo 仍按原始 pivot 工作，如果 pivot 不统一，需要在使用说明中注明。
 
 ---
 
-## 5. 分阶段交付与工作量
+## 5. 数据契约
 
-假设一位有 UE 编辑器开发经验的工程师：
+数据层继续直接读现有 JSON，不新增导出步骤。下面是加载后需要得到的结构，现有文件缺少的字段要补齐。`asset_path`、`front_plane`、socket 的 `role` 和 `types` 写入哪个文件待定；socket 的来源也要统一，原架构图写在 registry，README 写来自 mesh_meta 阶段（见第 9 节）。
+
+```jsonc
+{
+  "schema_version": 1,
+  "kit": "crossstreet",
+  "modules": [{
+    "id": "Window_300x300_02",
+    "asset_path": "/Game/...",          // 新增，必填
+    "name_zh": "方窗 300×300",
+    "category": "window",
+    "tags": ["neutral"],
+    "bounds": { "...": "..." },
+    "pivot": { "...": "..." },
+    "front_plane": 7.0,                 // 新增，距 pivot 沿局部 +Y 的距离（cm）
+    "sockets": [{
+      "name": "...",
+      "transform": { "...": "..." },
+      "role": "plug",                   // 新增，target | plug
+      "types": ["window_300"]           // 新增
+    }]
+  }]
+}
+```
+
+以上为结构示意，字段名和类型以实际文件为准。
+
+**加载与校验**：
+- `schema_version` 不支持时，拒绝加载并明确提示。
+- `asset_path` 无效的模块在卡片上显示警告且不可拖动，其他模块不受影响。
+- 缺少 socket 字段时，该模块禁用插槽吸附；缺少 `front_plane` 时按 4.3 回退。
+- registry.json 更新后，编辑器重启自动重载；另提供"刷新注册表"按钮，不必重启。
+
+**实例识别**：
+- 以 **StaticMesh 资产**为准，通过 `asset_path` 反查模块，这样也能识别从 Content Browser 放置的 Actor。
+- `module=<id>` 标签只作辅助，用于 recipe 互操作；替换 Mesh 后可能过期，不作为选择依据。
+- "选中全部实例"只覆盖已加载的 Actor；如果项目用 World Partition，界面要显示"已加载范围"。
+
+---
+
+## 6. 分阶段交付与工作量
+
+以下为初估，假设一位有 UE 编辑器开发经验、会 Slate 的工程师；如果没有 Slate 经验，P1 另加约 1 周。P0 完成后重估 P1、P2。
 
 | 阶段 | 内容 | 工时 | 交付价值 |
 |---|---|---|---|
-| P1 | 模块库窗口（筛选/卡片/缩略图/3D 大预览）+ 拖拽（FAssetDragDropOp）+ 放置工厂（scale 锁/pivot/标签）+ 按模块选择 | 1.5–2 周 | **筛选+拖放立即可用**；磁吸先用 UE 原生网格吸附顶着 |
-| P2 | EdMode + ghost + 插槽/表面/角度磁吸 + 对齐工具条（含沿街面对齐） | 2–3 周 | 完整拼装体验 |
+| P0 | 5.7 原型与数据抽查（见下） | 3 天 | 选定拖拽通道和模式基类，降低返工风险 |
+| P1 | 模块库窗口（筛选/卡片/缩略图/3D 大预览）+ 选定通道的拖放 + 放置工厂 + 按模块选择 + 数据层 | 2–2.5 周 | **筛选+拖放立即可用**；磁吸先用 UE 原生网格吸附顶着 |
+| P2 | EdMode + 连续放置 + 插槽/角度磁吸 + 微调 + 对齐工具条（含沿街面对齐） | 3–5 周 | 完整拼装体验 |
 | P3（可选） | 批量排布（阵列/沿线/沿街自动排布）+ recipe 联动（把 plan.json 一键摆进场景，即 build_in_editor.py 的 UI 版） | 1–2 周 | 从手工拼装过渡到半自动生成 |
 
-**建议**：P1 先行，地编同学第二周就能用上；P2 并行打磨。P3 和你们的大模型 PCG 路线汇合（配方驱动生成）。
+**P0 验收**：在 UE 5.7 中完成"Slate 窗口拖入视口 → 显示 ghost → 吸附到一个 socket → 松手生成 Actor → Ctrl+Z 一次撤销 → Esc/拖出视口无残留"，并输出：
+1. 拖拽方案决定（2.3）。
+2. 模式基类决定（2.2）。
+3. Gizmo 拖动时能否改写吸附结果。
+4. 预览落点与最终落点是否一致。
+5. 快捷键冲突清单。
+6. socket 和 pivot 数据抽查结果。
+
+**建议**：P0 通过后 P1 先行，P1 完成后地编同学就能用上；P2 并行打磨。P3 和你们的大模型 PCG 路线汇合（配方驱动生成）。
 
 ---
 
-## 6. 风险与注意事项
+## 7. 风险与注意事项
 
-1. **Slate 学习曲线**：团队没写过 Slate 的话，P1 前 3 天基本在搭架子。备选是先用 UMG 做个只能看不能拖的"模块浏览器"过渡——但前面分析过，UMG 满足不了拖拽+3D，迟早要重写。
-2. **UE 版本差异**：5.0–5.6 的 `FEdMode`/`SEditorViewport`/`FAssetThumbnail` API 基本稳定；Interactive Tools Framework 变化较大——这也是选经典 FEdMode 的原因之一。
-3. **缩略图**：225 个模块常驻池没问题；如果个别模块缩略图渲染异常（你们有些是占位材质）， fallback 到预渲染 PNG。
-4. **中文搜索**：一期做子串匹配（中文名/ID/标签）足够；拼音首字母二期再加。
-5. **数据同步**：registry.json 更新后，编辑器重启自动重载（或加一个"刷新注册表"按钮，避免重启）。
-6. **和现有管线不打架**：`build_in_editor.py` 的 Remote Execution 流程保持不动；地编模式是"手工快拼"通道，recipe 是"批量生成"通道，两者生成的 Actor 都用 `module=<id>` 标签，互操作。
-7. **不要重做撤销**：所有修改场景的操作走 `FScopedTransaction`，白嫖编辑器撤销栈。
+1. **Slate 学习曲线**：团队没写过 Slate 时，工期按第 6 节增加。UMG 只能作为只读浏览器过渡，满足不了拖拽和 3D 预览。
+2. **引擎版本**：目标为 5.7，相关 API 以 5.7 头文件为准；升级时重新跑 P0 验收流程。
+3. **分发**：地编同学不一定有编译环境，需通过 `RunUAT BuildPlugin` 产出 5.7 预编译插件，并明确更新方式。使用自编译引擎时，要基于同一引擎构建。
+4. **缩略图**：个别模块使用占位材质导致渲染异常时，fallback 到预渲染 PNG。
+5. **中文搜索**：一期做子串匹配（中文名/ID/标签）；拼音首字母二期再加。
+6. **和现有管线不打架**：`build_in_editor.py` 的 Remote Execution 流程保持不动；地编模式是"手工快拼"通道，recipe 是"批量生成"通道，两者生成的 Actor 都用 `module=<id>` 标签互操作。选择功能以 Mesh 为准，不依赖标签。
+7. **不要重做撤销**：所有修改场景的操作走 `FScopedTransaction` 并调用 `Modify()`，复用编辑器撤销栈。
+
+---
+
+## 8. 效果图待修改项
+
+| 位置 | 修改 |
+|---|---|
+| 图 1 方窗卡片 | 副标题"拱窗"与名称"方窗"统一 |
+| 图 1 结果数 | 显示 9 个结果，只画了 8 张卡片；补齐或改数字 |
+| 图 1 分类 | 现有分类合计 95，总数 225；补全分类并增加"全部" |
+| 图 1 筛选条 | 去掉分类下拉框，增加尺寸筛选 |
+| 图 2 ghost | 锚点与 socket 标记对齐，准确表达 4.2 的匹配结果 |
+| 图 2 角度设置 | 顶栏、磁吸区、放置区只保留磁吸区一处 |
+| 图 2 对齐区 | Y 轴改为"前/中/后"；增加局部/世界切换 |
+| 图 2 磁吸区 | "插槽半径"改为"吸附半径"，默认 100 |
+| 图例与图 2 副标题 | 增加白色（自由）和红色（无效）；副标题的蓝色改为"表面和/或网格吸附" |
+| CSS | `.card.sel` 会命中下拉框的 `.sel` 样式，重命名其中一个类 |
+
+---
+
+## 9. 待确认问题
+
+| 问题 | 影响 | 建议负责人 |
+|---|---|---|
+| 现有 socket 是否有类型和朝向，模块侧是否有 `plug` | 决定 4.2 能否直接实现，或要先补数据 | 数据管线 |
+| pivot 能否在资产侧统一 | 决定 4.4 的实现方式和工作量 | 美术 / 数据管线 |
+| 招牌、雨棚等模块的 `front_plane` 如何计算 | 决定沿街面对齐的准确度 | 数据管线 |
+| socket 实际存放在 registry 还是 mesh_meta 产物 | 决定数据层读取来源 | 数据管线 |
+| 新增字段写入哪个文件，JSON 部署到哪里 | 决定加载路径和更新方式 | 工具开发 / 数据管线 |
+| 单选时沿街面对齐的基准从哪里来 | 决定 4.3 单选行为 | 地编 / 工具开发 |
+| 项目是否使用 World Partition | 决定实例选择的范围和提示 | 地编 / TA |
+| 引擎是 Launcher 版还是自编译版 | 决定插件分发方式 | 工具开发 |
+
+---
+
+## 参考
+
+- [UEdMode API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/UEdMode)
+- [UBaseLegacyWidgetEdMode API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/UBaseLegacyWidgetEdMode)
+- [FAssetDragDropOp API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/FAssetDragDropOp)
+- [UpdateDropPreviewActors API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/FLevelEditorViewportClient/UpdateDropPreviewActors)
+- [DropObjectsAtCoordinates API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/FLevelEditorViewportClient/DropObjectsAtCoordinates)
